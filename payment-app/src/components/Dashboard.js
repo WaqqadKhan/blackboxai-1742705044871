@@ -7,33 +7,63 @@ import {
   faChartLine,
   faClock,
   faArrowUp,
-  faArrowDown
+  faArrowDown,
+  faWallet
 } from '@fortawesome/free-solid-svg-icons';
 import { AuthContext } from '../App';
 import transactionService from '../services/transactionService';
 import currencyService from '../services/currencyService';
+import walletService from '../services/walletService';
 
 const Dashboard = () => {
   const { user } = useContext(AuthContext);
+  const [wallets, setWallets] = useState({});
   const [recentTransactions, setRecentTransactions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [stats, setStats] = useState(null);
 
   useEffect(() => {
-    const fetchRecentTransactions = async () => {
+    const fetchDashboardData = async () => {
       try {
-        const transactions = await transactionService.getRecentTransactions();
+        // Fetch user's wallets
+        const userWallets = walletService.getUserWallets(user.email);
+        setWallets(userWallets);
+
+        // Fetch recent transactions
+        const transactions = await transactionService.getRecentTransactions(user.email);
         setRecentTransactions(transactions);
+
+        // Fetch transaction stats
+        const transactionStats = await transactionService.getTransactionStats(user.email);
+        setStats(transactionStats);
+
+        setError('');
       } catch (err) {
-        setError('Failed to load recent transactions');
+        setError('Failed to load dashboard data');
         console.error(err);
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchRecentTransactions();
-  }, []);
+    fetchDashboardData();
+  }, [user.email]);
+
+  const WalletCard = ({ currency, balance }) => (
+    <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow duration-200">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center">
+          <FontAwesomeIcon icon={faWallet} className="text-blue-500 text-xl mr-3" />
+          <h3 className="text-lg font-semibold text-gray-900">{currency}</h3>
+        </div>
+        <span className="text-sm text-gray-500">Available Balance</span>
+      </div>
+      <div className="text-2xl font-bold text-gray-900">
+        {currencyService.formatCurrency(balance, currency)}
+      </div>
+    </div>
+  );
 
   const QuickActionCard = ({ icon, title, description, to, color }) => (
     <Link
@@ -49,8 +79,11 @@ const Dashboard = () => {
   );
 
   const TransactionItem = ({ transaction }) => {
-    const isOutgoing = transaction.type === 'SEND';
-    const amount = currencyService.formatCurrency(transaction.amount, transaction.currency);
+    const isOutgoing = transaction.type === 'SEND' && transaction.senderEmail === user.email;
+    const amount = currencyService.formatCurrency(
+      transaction.amount,
+      transaction.currency || 'USD'
+    );
 
     return (
       <div className="flex items-center justify-between py-3 border-b border-gray-200 last:border-0">
@@ -63,7 +96,12 @@ const Dashboard = () => {
           </div>
           <div>
             <p className="font-medium text-gray-900">
-              {isOutgoing ? `To ${transaction.recipientEmail}` : `From ${transaction.senderEmail}`}
+              {transaction.type === 'EXCHANGE' 
+                ? `Exchanged ${transaction.fromCurrency} to ${transaction.toCurrency}`
+                : isOutgoing 
+                  ? `To ${transaction.recipientEmail}` 
+                  : `From ${transaction.senderEmail}`
+              }
             </p>
             <p className="text-sm text-gray-500">{transaction.description}</p>
             <p className="text-xs text-gray-400">
@@ -72,34 +110,29 @@ const Dashboard = () => {
           </div>
         </div>
         <div className={`font-medium ${isOutgoing ? 'text-red-600' : 'text-green-600'}`}>
-          {isOutgoing ? `-${amount}` : `+${amount}`}
+          {isOutgoing ? '-' : '+'}
+          {amount}
         </div>
       </div>
     );
   };
 
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <FontAwesomeIcon icon={faClock} spin className="text-blue-500 text-3xl" />
+        <p className="ml-2">Loading dashboard...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Balance Card */}
-      <div className="bg-blue-600 rounded-lg shadow-lg p-6 mb-8">
-        <h2 className="text-white text-lg font-medium mb-2">Available Balance</h2>
-        <div className="text-white text-3xl font-bold mb-4">
-          {currencyService.formatCurrency(user?.balance || 0, 'USD')}
-        </div>
-        <div className="flex space-x-4">
-          <Link
-            to="/payment"
-            className="bg-white text-blue-600 px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-50 transition-colors duration-200"
-          >
-            Send Money
-          </Link>
-          <Link
-            to="/exchange"
-            className="bg-blue-500 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-400 transition-colors duration-200"
-          >
-            Exchange Currency
-          </Link>
-        </div>
+      {/* Wallets Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        {Object.entries(wallets).map(([currency, balance]) => (
+          <WalletCard key={currency} currency={currency} balance={balance} />
+        ))}
       </div>
 
       {/* Quick Actions Grid */}
@@ -127,6 +160,31 @@ const Dashboard = () => {
         />
       </div>
 
+      {/* Transaction Statistics */}
+      {stats && (
+        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Transaction Overview</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <p className="text-sm text-gray-500">Total Sent</p>
+              <p className="text-2xl font-bold text-red-600">
+                {currencyService.formatCurrency(stats.totalSent, 'USD')}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Total Received</p>
+              <p className="text-2xl font-bold text-green-600">
+                {currencyService.formatCurrency(stats.totalReceived, 'USD')}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Currency Exchanges</p>
+              <p className="text-2xl font-bold text-blue-600">{stats.totalExchanges}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Recent Transactions */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center justify-between mb-6">
@@ -139,12 +197,7 @@ const Dashboard = () => {
           </Link>
         </div>
 
-        {isLoading ? (
-          <div className="text-center py-4">
-            <FontAwesomeIcon icon={faClock} spin className="text-gray-400 text-2xl" />
-            <p className="text-gray-500 mt-2">Loading transactions...</p>
-          </div>
-        ) : error ? (
+        {error ? (
           <div className="text-center py-4 text-red-600">{error}</div>
         ) : recentTransactions.length === 0 ? (
           <div className="text-center py-4 text-gray-500">No recent transactions</div>

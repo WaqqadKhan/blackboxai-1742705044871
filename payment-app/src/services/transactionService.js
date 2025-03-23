@@ -1,134 +1,96 @@
-import authService from './authService';
-
-// Simulated transaction data store
-let transactions = [
-  {
-    id: 1,
-    senderId: 1,
-    recipientEmail: 'jane@example.com',
-    amount: 100.00,
-    currency: 'USD',
-    type: 'SEND',
-    status: 'COMPLETED',
-    description: 'Dinner payment',
-    timestamp: '2024-01-15T18:30:00Z'
-  },
-  {
-    id: 2,
-    senderId: 2,
-    recipientEmail: 'john@example.com',
-    amount: 50.00,
-    currency: 'USD',
-    type: 'RECEIVE',
-    status: 'COMPLETED',
-    description: 'Movie tickets',
-    timestamp: '2024-01-14T15:45:00Z'
-  }
-];
+import databaseService from './databaseService';
+import walletService from './walletService';
 
 const transactionService = {
-  // Get all transactions for current user
-  getTransactions: () => {
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        const currentUser = authService.getCurrentUser();
-        if (!currentUser) {
-          reject(new Error('Not authenticated'));
-          return;
-        }
-
-        const userTransactions = transactions.filter(t => 
-          t.senderId === currentUser.id || 
-          t.recipientEmail === currentUser.email
-        );
-
-        resolve(userTransactions);
-      }, 300);
-    });
-  },
-
   // Send payment to another user
-  sendPayment: (paymentData) => {
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        const currentUser = authService.getCurrentUser();
-        if (!currentUser) {
-          reject(new Error('Not authenticated'));
-          return;
-        }
+  async sendPayment({ senderEmail, recipientEmail, amount, currency, description }) {
+    try {
+      // Perform the transfer in the specified currency
+      const result = await walletService.transfer(
+        senderEmail,
+        recipientEmail,
+        currency,
+        amount
+      );
 
-        // Validate payment amount
-        if (paymentData.amount <= 0) {
-          reject(new Error('Invalid amount'));
-          return;
-        }
+      // Record the transaction
+      const transaction = await databaseService.addTransaction({
+        type: 'SEND',
+        senderEmail,
+        recipientEmail,
+        amount,
+        currency,
+        description,
+        senderBalance: result.senderBalance,
+        recipientBalance: result.recipientBalance
+      });
 
-        // Check if user has sufficient balance
-        if (currentUser.balance < paymentData.amount) {
-          reject(new Error('Insufficient balance'));
-          return;
-        }
-
-        // Create new transaction
-        const newTransaction = {
-          id: transactions.length + 1,
-          senderId: currentUser.id,
-          recipientEmail: paymentData.recipientEmail,
-          amount: paymentData.amount,
-          currency: paymentData.currency || 'USD',
-          type: 'SEND',
-          status: 'COMPLETED',
-          description: paymentData.description || '',
-          timestamp: new Date().toISOString()
-        };
-
-        // Update transactions list
-        transactions.push(newTransaction);
-
-        // Update user balance (in a real app, this would be handled by the backend)
-        currentUser.balance -= paymentData.amount;
-        localStorage.setItem('user', JSON.stringify(currentUser));
-
-        resolve(newTransaction);
-      }, 300);
-    });
+      return transaction;
+    } catch (error) {
+      throw new Error(`Payment failed: ${error.message}`);
+    }
   },
 
-  // Get transaction by ID
-  getTransactionById: (transactionId) => {
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        const transaction = transactions.find(t => t.id === transactionId);
-        if (transaction) {
-          resolve(transaction);
-        } else {
-          reject(new Error('Transaction not found'));
-        }
-      }, 300);
-    });
+  // Get all transactions for a user
+  async getTransactions(userEmail) {
+    try {
+      const transactions = await databaseService.getTransactionsByUser(userEmail);
+      return transactions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    } catch (error) {
+      throw new Error(`Failed to fetch transactions: ${error.message}`);
+    }
   },
 
-  // Get recent transactions (last 5)
-  getRecentTransactions: () => {
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        const currentUser = authService.getCurrentUser();
-        if (!currentUser) {
-          reject(new Error('Not authenticated'));
-          return;
-        }
+  // Get recent transactions for a user
+  async getRecentTransactions(userEmail, limit = 5) {
+    try {
+      const transactions = await this.getTransactions(userEmail);
+      return transactions.slice(0, limit);
+    } catch (error) {
+      throw new Error(`Failed to fetch recent transactions: ${error.message}`);
+    }
+  },
 
-        const userTransactions = transactions
-          .filter(t => 
-            t.senderId === currentUser.id || 
-            t.recipientEmail === currentUser.email
-          )
-          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-          .slice(0, 5);
+  // Record a currency exchange transaction
+  async recordExchange({ userEmail, fromAmount, fromCurrency, toAmount, toCurrency, rate }) {
+    try {
+      const transaction = await databaseService.addTransaction({
+        type: 'EXCHANGE',
+        senderEmail: userEmail,
+        recipientEmail: userEmail,
+        fromAmount,
+        fromCurrency,
+        toAmount,
+        toCurrency,
+        rate,
+        description: `Exchanged ${fromAmount} ${fromCurrency} to ${toAmount} ${toCurrency}`
+      });
 
-        resolve(userTransactions);
-      }, 300);
-    });
+      return transaction;
+    } catch (error) {
+      throw new Error(`Failed to record exchange: ${error.message}`);
+    }
+  },
+
+  // Get transaction statistics
+  async getTransactionStats(userEmail) {
+    try {
+      const transactions = await this.getTransactions(userEmail);
+      
+      return {
+        totalSent: transactions
+          .filter(t => t.type === 'SEND' && t.senderEmail === userEmail)
+          .reduce((sum, t) => sum + t.amount, 0),
+        totalReceived: transactions
+          .filter(t => t.type === 'SEND' && t.recipientEmail === userEmail)
+          .reduce((sum, t) => sum + t.amount, 0),
+        totalExchanges: transactions
+          .filter(t => t.type === 'EXCHANGE')
+          .length
+      };
+    } catch (error) {
+      throw new Error(`Failed to get transaction statistics: ${error.message}`);
+    }
   }
 };
 

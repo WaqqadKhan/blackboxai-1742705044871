@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faUser,
@@ -38,6 +38,19 @@ const Settings = () => {
       marketing: false
     }
   });
+  const [currencies, setCurrencies] = useState([]);
+
+  useEffect(() => {
+    const loadCurrencies = async () => {
+      try {
+        const supportedCurrencies = await currencyService.getSupportedCurrencies();
+        setCurrencies(supportedCurrencies);
+      } catch (err) {
+        console.error('Failed to load currencies:', err);
+      }
+    };
+    loadCurrencies();
+  }, []);
 
   const handleProfileChange = (e) => {
     const { name, value } = e.target;
@@ -317,7 +330,7 @@ const Settings = () => {
                     onChange={handlePreferenceChange}
                     className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
                   >
-                    {currencyService.getSupportedCurrencies().map(currency => (
+                  {currencies.map(currency => (
                       <option key={currency.code} value={currency.code}>
                         {currency.code} - {currency.name}
                       </option>

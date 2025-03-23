@@ -36,11 +36,7 @@ const supportedCurrencies = [
 const currencyService = {
   // Get list of supported currencies
   getSupportedCurrencies: () => {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve(supportedCurrencies);
-      }, 300);
-    });
+    return supportedCurrencies;
   },
 
   // Get exchange rate between two currencies
